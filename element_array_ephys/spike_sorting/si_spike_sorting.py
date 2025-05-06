@@ -572,6 +572,7 @@ class SIExport(dj.Computed):
             si.exporters.export_report(
                 sorting_analyzer=sorting_analyzer,
                 output_folder=analyzer_output_dir / "spikeinterface_report",
+                remove_if_exists=True,
                 **job_kwargs,
             )
 
