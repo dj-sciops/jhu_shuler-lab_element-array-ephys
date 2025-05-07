@@ -5,7 +5,7 @@ The following DataJoint pipeline implements the sequence of steps in the spike-s
 from datetime import datetime
 import shutil
 import datajoint as dj
-import pandas as pd
+import pathlib
 import spikeinterface as si
 from element_array_ephys import probe, readers
 from element_interface.utils import find_full_path, memoized_result
@@ -537,12 +537,10 @@ class SIExport(dj.Computed):
             # copy the recording.dat
             rec_dat_query = SIClustering.File & key & "file_name LIKE '%recording.dat'"
             if rec_dat_query:
-                src_fp = rec_dat_query.fetch("file", limit=1)[0]
-                dest_fp = analyzer_output_dir / "phy" / "recording.dat"
-                shutil.copy(src_fp, dest_fp)
+                src_fp = pathlib.Path(rec_dat_query.fetch("file", limit=1)[0])
                 existing_rec_dat = True
-                log.info(f"Recording.dat copied to {dest_fp} for phy export. ")
             else:
+                src_fp = None
                 existing_rec_dat = False
 
             # Save to phy format
@@ -555,13 +553,19 @@ class SIExport(dj.Computed):
                 **job_kwargs,
             )
 
-            # Update `dat_path` in params.py
-            params_py = analyzer_output_dir / "phy" / "params.py"
-            with params_py.open("r") as f:
-                params_content = [l for l in f.readlines() if not l.startswith("dat_path = ")]
-            params_content.insert(0, "dat_path = r'recording.dat'\n")
-            with params_py.open("w") as f:
-                f.writelines(params_content)
+            if existing_rec_dat:
+                # Copy recording.dat
+                dest_fp = analyzer_output_dir / "phy" / "recording.dat"
+                log.info(f"Copy recording.dat to {dest_fp} for phy export.")
+                if not(dest_fp.exists() and dest_fp.stat().st_size == src_fp.stat().st_size):
+                    shutil.copy(src_fp, dest_fp)
+                # Update `dat_path` in params.py
+                params_py = analyzer_output_dir / "phy" / "params.py"
+                with params_py.open("r") as f:
+                    params_content = [l for l in f.readlines() if not l.startswith("dat_path = ")]
+                params_content.insert(0, "dat_path = r'recording.dat'\n")
+                with params_py.open("w") as f:
+                    f.writelines(params_content)
 
         @memoized_result(
             uniqueness_dict=postprocessing_params,
