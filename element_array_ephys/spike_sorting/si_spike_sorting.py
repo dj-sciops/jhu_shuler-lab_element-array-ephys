@@ -339,9 +339,9 @@ class SIClustering(dj.Imported):
                 agreement.set_property("KSLabel", unit_labels)
 
             consensus_folder = (
-                output_dir / clustering_method / "spike_sorting" / "si_sorting.pkl"
+                output_dir / clustering_method / "spike_sorting"
             )
-            agreement.dump_to_pickle(consensus_folder, relative_to=output_dir)
+            agreement.dump_to_pickle(consensus_folder / "si_sorting.pkl", relative_to=output_dir)
             result_files.extend(
                 [
                     {
