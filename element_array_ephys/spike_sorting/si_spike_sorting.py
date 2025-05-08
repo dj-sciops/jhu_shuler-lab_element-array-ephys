@@ -554,12 +554,11 @@ class SIExport(dj.Computed):
             )
 
             if existing_rec_dat:
-                # Copy recording.dat
                 dest_fp = analyzer_output_dir / "phy" / "recording.dat"
                 log.info(f"Copy recording.dat to {dest_fp} for phy export.")
                 if not(dest_fp.exists() and dest_fp.stat().st_size == src_fp.stat().st_size):
                     shutil.copy(src_fp, dest_fp)
-                # Update `dat_path` in params.py
+                log.info("Update `dat_path` in `params.py`.")
                 params_py = analyzer_output_dir / "phy" / "params.py"
                 with params_py.open("r") as f:
                     params_content = [l for l in f.readlines() if not l.startswith("dat_path = ")]
