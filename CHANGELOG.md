@@ -3,6 +3,10 @@
 Observes [Semantic Versioning](https://semver.org/spec/v2.0.0.html) standard and
  [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) convention.
 
+## [0.4.2] - 2025-12-11
+
++ Fix - Update `export_to_phy()` and `export_report()` to use `folder` parameter instead of deprecated `output_folder` for spikeinterface API compatibility
+
 ## [0.4.1] - 2025-03-18
 
 + Fix - Add key_source to `ProbeLevelReport` to filter for 'good' quality units
