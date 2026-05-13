@@ -767,6 +767,11 @@ class ClusterQualityLabel(dj.Lookup):
         ("mua", "multi-unit activity"),
         ("noise", "bad unit"),
         ("n.a.", "not available"),
+        (
+            "no kilosort label",
+            "No kilosort label exists for this unit, likely because it was"
+            " the result of a merge or split during manual curation.",
+        ),
     ]
 
 
