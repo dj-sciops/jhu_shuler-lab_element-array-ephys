@@ -23,7 +23,7 @@ def main(ephys: types.ModuleType) -> widgets:
     )
 
     shank_dropdown_wg = widgets.Dropdown(
-        options=(ephys_report.ProbeLevelReport & probe_dropdown_wg.value).fetch(
+        options=(ephys_report.ProbeLevelReport & probe_dropdown_wg.value).to_arrays(
             "shank"
         ),
         description="Select Shank : ",
@@ -38,7 +38,7 @@ def main(ephys: types.ModuleType) -> widgets:
         options=(
             (ephys_report.UnitLevelReport & probe_dropdown_wg.value)
             & "cluster_quality_label='good'"
-        ).fetch("unit"),
+        ).to_arrays("unit"),
         description="Select Units : ",
         disabled=False,
         layout=widgets.Layout(
@@ -54,14 +54,14 @@ def main(ephys: types.ModuleType) -> widgets:
 
         shank_dropdown_wg.options = (
             ephys_report.ProbeLevelReport & probe_key.value
-        ).fetch("shank")
+        ).to_arrays("shank")
 
         unit_dropdown_wg.options = (
             (
                 ephys_report.UnitLevelReport
                 & probe_key.value
                 & "cluster_quality_label='good'"
-            ).fetch("unit"),
+            ).to_arrays("unit"),
         )
 
     def plot_probe_widget(probe_key, shank):

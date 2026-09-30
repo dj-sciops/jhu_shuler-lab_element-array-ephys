@@ -15,7 +15,7 @@ from . import si_preprocessing
 
 log = dj.logger
 
-schema = dj.schema()
+schema = dj.Schema()
 
 ephys = None
 
@@ -58,7 +58,7 @@ class PreProcessing(dj.Imported):
     -> ephys.ClusteringTask
     ---
     execution_time: datetime   # datetime of the start of this step
-    execution_duration: float  # execution duration in hours
+    execution_duration: float32  # execution duration in hours
     """
 
     class File(dj.Part):
@@ -66,7 +66,7 @@ class PreProcessing(dj.Imported):
         -> master
         file_name: varchar(255)
         ---
-        file: filepath@ephys-processed
+        file: <filepath@ephys-processed>
         """
 
     @property
@@ -158,7 +158,7 @@ class PreProcessing(dj.Imported):
                 * probe.ProbeType.Electrode
                 & key
             )
-            .fetch(format="frame")
+            .to_pandas()
             .reset_index()
         )
 
@@ -202,7 +202,7 @@ class SIClustering(dj.Imported):
     -> PreProcessing
     ---
     execution_time: datetime        # datetime of the start of this step
-    execution_duration: float       # execution duration in hours
+    execution_duration: float32       # execution duration in hours
     """
 
     class File(dj.Part):
@@ -210,7 +210,7 @@ class SIClustering(dj.Imported):
         -> master
         file_name: varchar(255)
         ---
-        file: filepath@ephys-processed
+        file: <filepath@ephys-processed>
         """
 
     def make(self, key):
@@ -376,7 +376,7 @@ class PostProcessing(dj.Imported):
     -> SIClustering
     ---
     execution_time: datetime   # datetime of the start of this step
-    execution_duration: float  # execution duration in hours
+    execution_duration: float32  # execution duration in hours
     do_si_export=0: bool       # whether to export to phy
     """
 
@@ -385,7 +385,7 @@ class PostProcessing(dj.Imported):
         -> master
         file_name: varchar(255)
         ---
-        file: filepath@ephys-processed
+        file: <filepath@ephys-processed>
         """
 
     def make(self, key):
@@ -496,7 +496,7 @@ class SIExport(dj.Computed):
     -> PostProcessing
     ---
     execution_time: datetime
-    execution_duration: float
+    execution_duration: float32
     """
 
     class File(dj.Part):
@@ -504,7 +504,7 @@ class SIExport(dj.Computed):
         -> master
         file_name: varchar(255)
         ---
-        file: filepath@ephys-processed
+        file: <filepath@ephys-processed>
         """
 
     @property
@@ -537,7 +537,7 @@ class SIExport(dj.Computed):
             # copy the recording.dat
             rec_dat_query = SIClustering.File & key & "file_name LIKE '%recording.dat'"
             if rec_dat_query:
-                src_fp = pathlib.Path(rec_dat_query.fetch("file", limit=1)[0])
+                src_fp = pathlib.Path(rec_dat_query.to_arrays("file", limit=1)[0])
                 existing_rec_dat = True
             else:
                 src_fp = None

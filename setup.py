@@ -29,7 +29,7 @@ setup(
     packages=find_packages(exclude=["contrib", "docs", "tests*"]),
     scripts=[],
     install_requires=[
-        "datajoint>=0.13.0",
+        "datajoint>=2.3.3",
         "ipykernel>=6.0.1",
         "ipywidgets",
         "openpyxl",
@@ -44,10 +44,10 @@ setup(
     ],
     extras_require={
         "elements": [
-            "element-animal @ git+https://github.com/datajoint/element-animal.git",
-            "element-event @ git+https://github.com/datajoint/element-event.git",
-            "element-lab @ git+https://github.com/datajoint/element-lab.git",
-            "element-session @ git+https://github.com/datajoint/element-session.git",
+            "element-animal @ git+https://github.com/datajoint/element-animal.git@dj-2.3",
+            "element-event @ git+https://github.com/datajoint/element-event.git@dj-2.3",
+            "element-lab @ git+https://github.com/datajoint/element-lab.git@dj-2.3",
+            "element-session @ git+https://github.com/datajoint/element-session.git@dj-2.3",
         ],
         "nwb": ["dandi", "neuroconv[ecephys]", "pynwb"],
         "tests": ["pre-commit", "pytest", "pytest-cov"],

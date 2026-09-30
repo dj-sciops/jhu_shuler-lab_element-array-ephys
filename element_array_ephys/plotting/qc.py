@@ -56,7 +56,7 @@ class QualityMetricFigs(object):
     @key.setter  # Allows `cls.property = new_item` notation
     def key(self, key: dict):
         """Use class_instance.key = your_key to reset key"""
-        if key not in self._ephys.QualityMetrics.fetch("KEY"):
+        if key not in self._ephys.QualityMetrics.keys():
             # If not already full key, check if uniquely identifies entry
             key = (self._ephys.QualityMetrics & key).fetch1("KEY")
         self._key = key
@@ -116,7 +116,7 @@ class QualityMetricFigs(object):
                 * self._ephys.QualityMetrics.Waveform
                 & self._key
                 & restrictions
-            ).fetch(format="frame")
+            ).to_pandas()
 
         return self._units
 

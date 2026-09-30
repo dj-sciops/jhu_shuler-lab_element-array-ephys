@@ -20,7 +20,7 @@ from tqdm import tqdm
 from ... import ephys_no_curation as ephys
 from ... import probe
 
-ephys_mode = os.getenv("EPHYS_MODE", dj.config["custom"].get("ephys_mode", "acute"))
+ephys_mode = os.getenv("EPHYS_MODE", "acute")
 if ephys_mode != "no-curation":
     raise NotImplementedError(
         "This export function is designed for the no_curation " + "schema"
@@ -51,7 +51,7 @@ class LFPDataChunkIterator(GenericDataChunkIterator):
                 space where data are stored contiguously and compressed.
         """
         self.lfp_electrodes_query = lfp_electrodes_query
-        self.electrodes = self.lfp_electrodes_query.fetch("electrode")
+        self.electrodes = self.lfp_electrodes_query.to_arrays("electrode")
 
         first_record = (
             self.lfp_electrodes_query & dict(electrode=self.electrodes[0])
@@ -114,10 +114,8 @@ def add_electrodes_to_nwb(session_key: dict, nwbfile: pynwb.NWBFile):
         description="electrode id within the probe",
     )
 
-    for this_probe in (ephys.ProbeInsertion * probe.Probe & session_key).fetch(
-        as_dict=True
-    ):
-        insertion_record = (ephys.InsertionLocation & this_probe).fetch(as_dict=True)
+    for this_probe in (ephys.ProbeInsertion * probe.Probe & session_key).to_dicts():
+        insertion_record = (ephys.InsertionLocation & this_probe).to_dicts()
         if len(insertion_record) == 1:
             insert_location = json.dumps(
                 {
@@ -139,7 +137,7 @@ def add_electrodes_to_nwb(session_key: dict, nwbfile: pynwb.NWBFile):
             description=this_probe.get("probe_comment", None),
             manufacturer=this_probe.get("probe_type", None),
         )
-        shank_ids = set((probe.ProbeType.Electrode & this_probe).fetch("shank"))
+        shank_ids = set((probe.ProbeType.Electrode & this_probe).to_arrays("shank"))
         for shank_id in shank_ids:
             electrode_group = nwbfile.create_electrode_group(
                 name=f"probe{this_probe['probe']}_shank{shank_id}",
@@ -150,7 +148,7 @@ def add_electrodes_to_nwb(session_key: dict, nwbfile: pynwb.NWBFile):
 
             electrodes_query = (
                 probe.ProbeType.Electrode & this_probe & dict(shank=shank_id)
-            ).fetch(as_dict=True)
+            ).to_dicts()
             for electrode in electrodes_query:
                 nwbfile.add_electrode(
                     group=electrode_group,
@@ -216,7 +214,7 @@ def create_units_table(
     )
 
     for unit in tqdm(
-        (ephys.CuratedClustering.Unit & clustering_query.proj()).fetch(as_dict=True),
+        (ephys.CuratedClustering.Unit & clustering_query.proj()).to_dicts(),
         desc=f"creating units table for paramset {paramset_record['paramset_idx']}",
     ):
         probe_id, shank_num = (
@@ -287,8 +285,10 @@ def add_ephys_units_to_nwb(
         add_electrodes_to_nwb(session_key, nwbfile)
 
     for paramset_record in (
-        ephys.ClusteringParamSet & ephys.CuratedClustering & session_key
-    ).fetch("paramset_idx", "clustering_method", "paramset_desc", as_dict=True):
+        (ephys.ClusteringParamSet & ephys.CuratedClustering & session_key)
+        .proj("paramset_idx", "clustering_method", "paramset_desc")
+        .to_dicts()
+    ):
         if paramset_record["paramset_idx"] == primary_clustering_paramset_idx:
             units_table = create_units_table(
                 session_key,
@@ -386,9 +386,7 @@ def add_ephys_recording_to_nwb(
 
     mapping = get_electrodes_mapping(nwbfile.electrodes)
 
-    for ephys_recording_record in (ephys.EphysRecording & session_key).fetch(
-        as_dict=True
-    ):
+    for ephys_recording_record in (ephys.EphysRecording & session_key).to_dicts():
         probe_id = (ephys.ProbeInsertion() & ephys_recording_record).fetch1("probe")
 
         relative_path = (
@@ -415,7 +413,7 @@ def add_ephys_recording_to_nwb(
 
         recording_channels_by_id = (
             probe.ElectrodeConfig.Electrode() & ephys_recording_record
-        ).fetch("electrode")
+        ).to_arrays("electrode")
 
         nwbfile.add_acquisition(
             pynwb.ecephys.ElectricalSeries(
@@ -467,7 +465,7 @@ def add_ephys_lfp_from_dj_to_nwb(session_key: dict, nwbfile: pynwb.NWBFile):
 
     mapping = get_electrodes_mapping(nwbfile.electrodes)
 
-    for lfp_record in (ephys.LFP & session_key).fetch(as_dict=True):
+    for lfp_record in (ephys.LFP & session_key).to_dicts():
         probe_id = (ephys.ProbeInsertion & lfp_record).fetch1("probe")
 
         lfp_electrodes_query = ephys.LFP.Electrode & lfp_record
@@ -483,7 +481,7 @@ def add_ephys_lfp_from_dj_to_nwb(session_key: dict, nwbfile: pynwb.NWBFile):
                 description="electrodes used for LFP",
                 region=[
                     mapping[(probe_id, x)]
-                    for x in lfp_electrodes_query.fetch("electrode")
+                    for x in lfp_electrodes_query.to_arrays("electrode")
                 ],
             ),
         )
@@ -514,9 +512,7 @@ def add_ephys_lfp_from_source_to_nwb(
     lfp = pynwb.ecephys.LFP()
     ecephys_module.add(lfp)
 
-    for ephys_recording_record in (ephys.EphysRecording & session_key).fetch(
-        as_dict=True
-    ):
+    for ephys_recording_record in (ephys.EphysRecording & session_key).to_dicts():
         probe_id = (ephys.ProbeInsertion() & ephys_recording_record).fetch1("probe")
 
         relative_path = (
@@ -540,7 +536,7 @@ def add_ephys_lfp_from_source_to_nwb(
 
         recording_channels_by_id = (
             probe.ElectrodeConfig.Electrode() & ephys_recording_record
-        ).fetch("electrode")
+        ).to_arrays("electrode")
 
         conversion_kwargs = gains_helper(extractor.get_channel_gains())
 

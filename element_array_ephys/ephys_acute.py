@@ -15,7 +15,7 @@ from .readers import kilosort, openephys, spikeglx
 
 log = dj.logger
 
-schema = dj.schema()
+schema = dj.Schema()
 
 _linking_module = None
 
@@ -129,7 +129,10 @@ class AcquisitionSoftware(dj.Lookup):
     definition = """  # Software used for recording of neuropixels probes
     acq_software: varchar(24)
     """
-    contents = zip(["SpikeGLX", "Open Ephys"])
+    contents = [
+        {"acq_software": "SpikeGLX"},
+        {"acq_software": "Open Ephys"},
+    ]
 
 
 @schema
@@ -145,7 +148,7 @@ class ProbeInsertion(dj.Manual):
     definition = """
     # Probe insertion implanted into an animal for a given session.
     -> Session
-    insertion_number: tinyint unsigned
+    insertion_number: int16
     ---
     -> probe.Probe
     """
@@ -267,9 +270,9 @@ class EphysRecording(dj.Imported):
     ---
     -> probe.ElectrodeConfig
     -> AcquisitionSoftware
-    sampling_rate: float # (Hz)
+    sampling_rate: float32 # (Hz)
     recording_datetime: datetime # datetime of the recording from this probe
-    recording_duration: float # (seconds) duration of the recording from this probe
+    recording_duration: float32 # (seconds) duration of the recording from this probe
     """
 
     class EphysFile(dj.Part):
@@ -312,7 +315,7 @@ class EphysRecording(dj.Imported):
                 f" in {session_dir}"
             )
 
-        supported_probe_types = probe.ProbeType.fetch("probe_type")
+        supported_probe_types = probe.ProbeType.to_arrays("probe_type")
 
         if acq_software == "SpikeGLX":
             for meta_filepath in ephys_meta_filepaths:
@@ -331,7 +334,9 @@ class EphysRecording(dj.Imported):
                 probe_electrodes = {
                     (shank, shank_col, shank_row): key
                     for key, shank, shank_col, shank_row in zip(
-                        *electrode_query.fetch("KEY", "shank", "shank_col", "shank_row")
+                        *electrode_query.to_arrays(
+                            "shank", "shank_col", "shank_row", include_key=True
+                        )
                     )
                 }
 
@@ -383,7 +388,7 @@ class EphysRecording(dj.Imported):
                 electrode_query = probe.ProbeType.Electrode & {"probe_type": probe_type}
 
                 probe_electrodes = {
-                    key["electrode"]: key for key in electrode_query.fetch("KEY")
+                    key["electrode"]: key for key in electrode_query.keys()
                 }
 
                 electrode_group_members = [
@@ -448,9 +453,9 @@ class LFP(dj.Imported):
     # Acquired local field potential (LFP) from a given Ephys recording.
     -> EphysRecording
     ---
-    lfp_sampling_rate: float   # (Hz)
-    lfp_time_stamps: longblob  # (s) timestamps with respect to the start of the recording (recording_timestamp)
-    lfp_mean: longblob         # (uV) mean of LFP across electrodes - shape (time,)
+    lfp_sampling_rate: float32   # (Hz)
+    lfp_time_stamps: <blob>  # (s) timestamps with respect to the start of the recording (recording_timestamp)
+    lfp_mean: <blob>         # (uV) mean of LFP across electrodes - shape (time,)
     """
 
     class Electrode(dj.Part):
@@ -466,7 +471,7 @@ class LFP(dj.Imported):
         -> master
         -> probe.ElectrodeConfig.Electrode
         ---
-        lfp: longblob               # (uV) recorded lfp at this electrode
+        lfp: <blob>               # (uV) recorded lfp at this electrode
         """
 
     # Only store LFP for every 9th channel, due to high channel density,
@@ -516,7 +521,9 @@ class LFP(dj.Imported):
             probe_electrodes = {
                 (shank, shank_col, shank_row): key
                 for key, shank, shank_col, shank_row in zip(
-                    *electrode_query.fetch("KEY", "shank", "shank_col", "shank_row")
+                    *electrode_query.to_arrays(
+                        "shank", "shank_col", "shank_row", include_key=True
+                    )
                 )
             }
 
@@ -555,9 +562,7 @@ class LFP(dj.Imported):
                 * EphysRecording
                 & key
             )
-            probe_electrodes = {
-                key["electrode"]: key for key in electrode_query.fetch("KEY")
-            }
+            probe_electrodes = {key["electrode"]: key for key in electrode_query.keys()}
 
             electrode_keys.extend(
                 probe_electrodes[channel_idx] for channel_idx in lfp_channel_ind
@@ -593,10 +598,22 @@ class ClusteringMethod(dj.Lookup):
     """
 
     contents = [
-        ("kilosort2", "kilosort2 clustering method"),
-        ("kilosort2.5", "kilosort2.5 clustering method"),
-        ("kilosort3", "kilosort3 clustering method"),
-        ("consensus", "consensus between sorting methods"),
+        {
+            "clustering_method": "kilosort2",
+            "clustering_method_desc": "kilosort2 clustering method",
+        },
+        {
+            "clustering_method": "kilosort2.5",
+            "clustering_method_desc": "kilosort2.5 clustering method",
+        },
+        {
+            "clustering_method": "kilosort3",
+            "clustering_method_desc": "kilosort3 clustering method",
+        },
+        {
+            "clustering_method": "consensus",
+            "clustering_method_desc": "consensus between sorting methods",
+        },
     ]
 
 
@@ -614,13 +631,13 @@ class ClusteringParamSet(dj.Lookup):
 
     definition = """
     # Parameter set to be used in a clustering procedure
-    paramset_idx:  smallint
+    paramset_idx:  int16
     ---
     -> ClusteringMethod
     paramset_desc: varchar(128)
     param_set_hash: uuid
     unique index (param_set_hash)
-    params: longblob  # dictionary of all applicable parameters
+    params: <blob>  # dictionary of all applicable parameters
     """
 
     @classmethod
@@ -691,10 +708,16 @@ class ClusterQualityLabel(dj.Lookup):
     cluster_quality_description:  varchar(4000)
     """
     contents = [
-        ("good", "single unit"),
-        ("ok", "probably a single unit, but could be contaminated"),
-        ("mua", "multi-unit activity"),
-        ("noise", "bad unit"),
+        {"cluster_quality_label": "good", "cluster_quality_description": "single unit"},
+        {
+            "cluster_quality_label": "ok",
+            "cluster_quality_description": "probably a single unit, but could be contaminated",
+        },
+        {
+            "cluster_quality_label": "mua",
+            "cluster_quality_description": "multi-unit activity",
+        },
+        {"cluster_quality_label": "noise", "cluster_quality_description": "bad unit"},
     ]
 
 
@@ -931,7 +954,7 @@ class Curation(dj.Manual):
     definition = """
     # Manual curation procedure
     -> Clustering
-    curation_id: int
+    curation_id: int32
     ---
     curation_time: datetime             # time of generation of this set of curated clustering results
     curation_output_dir: varchar(255)   # output directory of the curated results, relative to root data directory
@@ -1006,14 +1029,14 @@ class CuratedClustering(dj.Imported):
         definition = """
         # Properties of a given unit from a round of clustering (and curation)
         -> master
-        unit: int
+        unit: int32
         ---
         -> probe.ElectrodeConfig.Electrode  # electrode with highest waveform amplitude for this unit
         -> ClusterQualityLabel
-        spike_count: int         # how many spikes in this recording for this unit
-        spike_times: longblob    # (s) spike times of this unit, relative to the start of the EphysRecording
-        spike_sites : longblob   # array of electrode associated with each spike
-        spike_depths=null : longblob  # (um) array of depths associated with each spike, relative to the (0, 0) of the probe
+        spike_count: int32         # how many spikes in this recording for this unit
+        spike_times: <blob>    # (s) spike times of this unit, relative to the start of the EphysRecording
+        spike_sites : <blob>   # array of electrode associated with each spike
+        spike_depths=null : <blob>  # (um) array of depths associated with each spike, relative to the (0, 0) of the probe
         """
 
     def make(self, key):
@@ -1125,7 +1148,7 @@ class WaveformSet(dj.Imported):
         -> master
         -> CuratedClustering.Unit
         ---
-        peak_electrode_waveform: longblob  # (uV) mean waveform for a given unit at its representative electrode
+        peak_electrode_waveform: <blob>  # (uV) mean waveform for a given unit at its representative electrode
         """
 
     class Waveform(dj.Part):
@@ -1145,8 +1168,8 @@ class WaveformSet(dj.Imported):
         -> CuratedClustering.Unit
         -> probe.ElectrodeConfig.Electrode
         ---
-        waveform_mean: longblob   # (uV) mean waveform across spikes of the given unit
-        waveforms=null: longblob  # (uV) (spike x sample) waveforms of a sampling of spikes at the given electrode for the given unit
+        waveform_mean: <blob>   # (uV) mean waveform across spikes of the given unit
+        waveforms=null: <blob>  # (uV) (spike x sample) waveforms of a sampling of spikes at the given electrode for the given unit
         """
 
     def make(self, key):
@@ -1171,7 +1194,7 @@ class WaveformSet(dj.Imported):
         # Get all units
         units = {
             u["unit"]: u
-            for u in (CuratedClustering.Unit & key).fetch(as_dict=True, order_by="unit")
+            for u in (CuratedClustering.Unit & key).to_dicts(order_by="unit")
         }
 
         if is_qc:
@@ -1302,21 +1325,21 @@ class QualityMetrics(dj.Imported):
         -> master
         -> CuratedClustering.Unit
         ---
-        firing_rate=null: float # (Hz) firing rate for a unit
-        snr=null: float  # signal-to-noise ratio for a unit
-        presence_ratio=null: float  # fraction of time in which spikes are present
-        isi_violation=null: float   # rate of ISI violation as a fraction of overall rate
-        number_violation=null: int  # total number of ISI violations
-        amplitude_cutoff=null: float  # estimate of miss rate based on amplitude histogram
-        isolation_distance=null: float  # distance to nearest cluster in Mahalanobis space
-        l_ratio=null: float  #
-        d_prime=null: float  # Classification accuracy based on LDA
-        nn_hit_rate=null: float  # Fraction of neighbors for target cluster that are also in target cluster
-        nn_miss_rate=null: float # Fraction of neighbors outside target cluster that are in target cluster
-        silhouette_score=null: float  # Standard metric for cluster overlap
-        max_drift=null: float  # Maximum change in spike depth throughout recording
-        cumulative_drift=null: float  # Cumulative change in spike depth throughout recording
-        contamination_rate=null: float #
+        firing_rate=null: float32 # (Hz) firing rate for a unit
+        snr=null: float32  # signal-to-noise ratio for a unit
+        presence_ratio=null: float32  # fraction of time in which spikes are present
+        isi_violation=null: float32   # rate of ISI violation as a fraction of overall rate
+        number_violation=null: int32  # total number of ISI violations
+        amplitude_cutoff=null: float32  # estimate of miss rate based on amplitude histogram
+        isolation_distance=null: float32  # distance to nearest cluster in Mahalanobis space
+        l_ratio=null: float32  #
+        d_prime=null: float32  # Classification accuracy based on LDA
+        nn_hit_rate=null: float32  # Fraction of neighbors for target cluster that are also in target cluster
+        nn_miss_rate=null: float32 # Fraction of neighbors outside target cluster that are in target cluster
+        silhouette_score=null: float32  # Standard metric for cluster overlap
+        max_drift=null: float32  # Maximum change in spike depth throughout recording
+        cumulative_drift=null: float32  # Cumulative change in spike depth throughout recording
+        contamination_rate=null: float32 #
         """
 
     class Waveform(dj.Part):
@@ -1341,15 +1364,15 @@ class QualityMetrics(dj.Imported):
         -> master
         -> CuratedClustering.Unit
         ---
-        amplitude: float  # (uV) absolute difference between waveform peak and trough
-        duration: float  # (ms) time between waveform peak and trough
-        halfwidth=null: float  # (ms) spike width at half max amplitude
-        pt_ratio=null: float  # absolute amplitude of peak divided by absolute amplitude of trough relative to 0
-        repolarization_slope=null: float  # the repolarization slope was defined by fitting a regression line to the first 30us from trough to peak
-        recovery_slope=null: float  # the recovery slope was defined by fitting a regression line to the first 30us from peak to tail
-        spread=null: float  # (um) the range with amplitude above 12-percent of the maximum amplitude along the probe
-        velocity_above=null: float  # (s/m) inverse velocity of waveform propagation from the soma toward the top of the probe
-        velocity_below=null: float  # (s/m) inverse velocity of waveform propagation from the soma toward the bottom of the probe
+        amplitude: float32  # (uV) absolute difference between waveform peak and trough
+        duration: float32  # (ms) time between waveform peak and trough
+        halfwidth=null: float32  # (ms) spike width at half max amplitude
+        pt_ratio=null: float32  # absolute amplitude of peak divided by absolute amplitude of trough relative to 0
+        repolarization_slope=null: float32  # the repolarization slope was defined by fitting a regression line to the first 30us from trough to peak
+        recovery_slope=null: float32  # the recovery slope was defined by fitting a regression line to the first 30us from peak to tail
+        spread=null: float32  # (um) the range with amplitude above 12-percent of the maximum amplitude along the probe
+        velocity_above=null: float32  # (s/m) inverse velocity of waveform propagation from the soma toward the top of the probe
+        velocity_below=null: float32  # (s/m) inverse velocity of waveform propagation from the soma toward the bottom of the probe
         """
 
     def make(self, key):
@@ -1374,7 +1397,7 @@ class QualityMetrics(dj.Imported):
         metrics_df.rename(columns=rename_dict, inplace=True)
         metrics_list = [
             dict(metrics_df.loc[unit_key["unit"]], **unit_key)
-            for unit_key in (CuratedClustering.Unit & key).fetch("KEY")
+            for unit_key in (CuratedClustering.Unit & key).keys()
         ]
 
         self.insert1(key)
@@ -1464,7 +1487,9 @@ def get_neuropixels_channel2electrode_map(
         probe_electrodes = {
             (shank, shank_col, shank_row): key
             for key, shank, shank_col, shank_row in zip(
-                *electrode_query.fetch("KEY", "shank", "shank_col", "shank_row")
+                *electrode_query.to_arrays(
+                    "shank", "shank_col", "shank_row", include_key=True
+                )
             )
         }
 
@@ -1482,9 +1507,7 @@ def get_neuropixels_channel2electrode_map(
             & ephys_recording_key
         )
 
-        probe_electrodes = {
-            key["electrode"]: key for key in electrode_query.fetch("KEY")
-        }
+        probe_electrodes = {key["electrode"]: key for key in electrode_query.keys()}
 
         channel2electrode_map = {
             channel_idx: probe_electrodes[channel_idx]
@@ -1568,7 +1591,7 @@ def get_recording_channels_details(ephys_recording_key: dict) -> np.array:
     ) = (
         probe.ElectrodeConfig.Electrode * probe.ProbeType.Electrode
         & electrode_config_key
-    ).fetch(
+    ).to_arrays(
         "electrode", "x_coord", "y_coord", "shank"
     )
     channels_details["sample_rate"] = sample_rate

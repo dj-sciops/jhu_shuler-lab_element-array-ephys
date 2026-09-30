@@ -12,7 +12,7 @@ from element_interface.utils import dict_to_uuid, find_full_path
 
 logger = dj.logger
 
-schema = dj.schema()
+schema = dj.Schema()
 
 ephys = None
 ephys_sorter = None
@@ -58,7 +58,7 @@ class CurationMethod(dj.Lookup):
     curation_method: varchar(16)  # method/package used to perform manual curation (e.g. Phy, FigURL, etc.)
     """
     contents = [
-        ("Phy",),
+        {"curation_method": "Phy"},
     ]
 
 
@@ -67,10 +67,10 @@ class ManualCuration(dj.Manual):
     definition = """
     # Manual curation from an ephys.Clustering
     -> ephys.Clustering
-    curation_id: int
+    curation_id: int32
     ---
     curation_datetime: datetime    # UTC time when the curation was performed
-    parent_curation_id=-1: int     # if -1, this curation is based on the raw spike sorting results
+    parent_curation_id=-1: int32     # if -1, this curation is based on the raw spike sorting results
     -> CurationMethod              # which method/package used for manual curation (inform how to ingest the results)
     description="": varchar(1000)  # user-defined description/note of the curation
     """
@@ -80,7 +80,7 @@ class ManualCuration(dj.Manual):
         -> master
         file_name: varchar(255)
         ---
-        file: filepath@ephys-processed
+        file: <filepath@ephys-processed>
         """
 
     @classmethod
@@ -155,7 +155,7 @@ class ManualCuration(dj.Manual):
             f"New manual curation: {curation_output_dir} - Downloading {len(files_query)} files..."
         )
 
-        for f in files_query.fetch("file"):
+        for f in files_query.to_arrays("file"):
             f = Path(f)
             if f.name.startswith(".") and f.suffix in (".json", ".pickle"):
                 continue
@@ -346,8 +346,8 @@ class ApplyOfficialCuration(dj.Imported):
     -> OfficialCuration
     ---
     execution_time: datetime        # datetime of the start of this step
-    new_unit_count: int             # number of new units added
-    removed_unit_count: int         # number of units removed
+    new_unit_count: int32             # number of new units added
+    removed_unit_count: int32         # number of units removed
     """
 
     @property
@@ -370,7 +370,7 @@ class ApplyOfficialCuration(dj.Imported):
         """
         from element_array_ephys.readers import kilosort
 
-        curated_files = (ManualCuration.File & key).fetch("file")
+        curated_files = (ManualCuration.File & key).to_arrays("file")
         curation_output_dir = (
             next(Path(f) for f in curated_files if Path(f).name == "params.py")
         ).parent
@@ -389,7 +389,9 @@ class ApplyOfficialCuration(dj.Imported):
         orig_si_unit_map = {
             u: i
             for i, u in enumerate(
-                (ephys.CuratedClustering.Unit & clus_key).fetch("unit", order_by="unit")
+                (ephys.CuratedClustering.Unit & clus_key).to_arrays(
+                    "unit", order_by="unit"
+                )
             )
         }
 
@@ -413,7 +415,7 @@ class ApplyOfficialCuration(dj.Imported):
             ..., "-channel_name"
         )
         channel2electrode_map: dict[int, dict] = {
-            chn.pop("channel_idx"): chn for chn in electrode_query.fetch(as_dict=True)
+            chn.pop("channel_idx"): chn for chn in electrode_query.to_dicts()
         }
 
         sample_rate = kilosort_dataset.data["params"]["sample_rate"]
@@ -429,12 +431,11 @@ class ApplyOfficialCuration(dj.Imported):
         spike_depths = kilosort_dataset.data["spike_depths"]
 
         # -- Remove units
-        with dj.config(safemode=False):
-            (
-                ephys.CuratedClustering.Unit
-                & clus_key
-                & [{"unit": u} for u in removed_units]
-            ).delete(force=True)
+        (
+            ephys.CuratedClustering.Unit
+            & clus_key
+            & [{"unit": u} for u in removed_units]
+        ).delete(prompt=False, part_integrity="ignore")
 
         # -- Insert unit, label, peak-chn
         for cluster_id, cluster_group in zip(

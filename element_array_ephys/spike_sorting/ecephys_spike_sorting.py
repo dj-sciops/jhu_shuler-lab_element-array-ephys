@@ -34,7 +34,7 @@ from element_array_ephys.readers import (
 
 log = dj.logger
 
-schema = dj.schema()
+schema = dj.Schema()
 
 ephys = None
 
@@ -76,9 +76,9 @@ class KilosortPreProcessing(dj.Imported):
     definition = """
     -> ephys.ClusteringTask
     ---
-    params: longblob           # finalized parameterset for this run
+    params: <blob>           # finalized parameterset for this run
     execution_time: datetime   # datetime of the start of this step
-    execution_duration: float  # (hour) execution duration
+    execution_duration: float32  # (hour) execution duration
     """
 
     @property
@@ -175,7 +175,7 @@ class KilosortClustering(dj.Imported):
     -> KilosortPreProcessing
     ---
     execution_time: datetime   # datetime of the start of this step
-    execution_duration: float  # (hour) execution duration
+    execution_duration: float32  # (hour) execution duration
     """
 
     def make(self, key):
@@ -239,9 +239,9 @@ class KilosortPostProcessing(dj.Imported):
     definition = """
     -> KilosortClustering
     ---
-    modules_status: longblob   # dictionary of summary status for all modules
+    modules_status: <blob>   # dictionary of summary status for all modules
     execution_time: datetime   # datetime of the start of this step
-    execution_duration: float  # (hour) execution duration
+    execution_duration: float32  # (hour) execution duration
     """
 
     def make(self, key):

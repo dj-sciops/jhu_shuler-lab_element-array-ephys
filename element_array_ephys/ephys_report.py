@@ -9,7 +9,7 @@ from element_interface.utils import dict_to_uuid
 
 from . import probe
 
-schema = dj.schema()
+schema = dj.Schema()
 
 ephys = None
 
@@ -47,9 +47,9 @@ class ProbeLevelReport(dj.Computed):
 
     definition = """
     -> ephys.CuratedClustering
-    shank         : tinyint unsigned
+    shank         : int16
     ---
-    drift_map_plot: attach
+    drift_map_plot: <attach>
     """
     
     @property
@@ -65,16 +65,14 @@ class ProbeLevelReport(dj.Computed):
 
         units = ephys.CuratedClustering.Unit & key & "cluster_quality_label='good'"
 
-        shanks = set((probe.ProbeType.Electrode & units).fetch("shank"))
+        shanks = set((probe.ProbeType.Electrode & units).to_arrays("shank"))
 
         for shank_no in shanks:
             table = units * ephys.ProbeInsertion * probe.ProbeType.Electrode & {
                 "shank": shank_no
             }
 
-            spike_times, spike_depths = table.fetch(
-                "spike_times", "spike_depths", order_by="unit"
-            )
+            spike_times, spike_depths = table.to_arrays("spike_times", "spike_depths", order_by="unit")
 
             # Get the figure
             fig = plot_driftmap(spike_times, spike_depths, colormap="gist_heat_r")
@@ -120,9 +118,9 @@ class UnitLevelReport(dj.Computed):
     -> ephys.CuratedClustering.Unit
     ---
     -> ephys.ClusterQualityLabel
-    waveform_plotly                 : longblob
-    autocorrelogram_plotly          : longblob
-    depth_waveform_plotly           : longblob
+    waveform_plotly                 : <blob>
+    autocorrelogram_plotly          : <blob>
+    depth_waveform_plotly           : <blob>
     """
 
     def make(self, key):
@@ -175,18 +173,30 @@ class QualityMetricCutoffs(dj.Lookup):
     """
 
     definition = """
-    cutoffs_id                    : smallint
+    cutoffs_id                    : int16
     ---
-    amplitude_cutoff_maximum=null : float # Defaults to null, no cutoff applied
-    presence_ratio_minimum=null   : float # Defaults to null, no cutoff applied
-    isi_violations_maximum=null   : float # Defaults to null, no cutoff applied
+    amplitude_cutoff_maximum=null : float32 # Defaults to null, no cutoff applied
+    presence_ratio_minimum=null   : float32 # Defaults to null, no cutoff applied
+    isi_violations_maximum=null   : float32 # Defaults to null, no cutoff applied
     cutoffs_hash: uuid
     unique index (cutoffs_hash)
     """
 
     contents = [
-        (0, None, None, None, UUID("5d835de1-e1af-1871-d81f-d12a9702ff5f")),
-        (1, 0.1, 0.9, 0.5, UUID("f74ccd77-0b3a-2bf8-0bfd-ec9713b5dca8")),
+        {
+            "cutoffs_id": 0,
+            "amplitude_cutoff_maximum": None,
+            "presence_ratio_minimum": None,
+            "isi_violations_maximum": None,
+            "cutoffs_hash": UUID("5d835de1-e1af-1871-d81f-d12a9702ff5f"),
+        },
+        {
+            "cutoffs_id": 1,
+            "amplitude_cutoff_maximum": 0.1,
+            "presence_ratio_minimum": 0.9,
+            "isi_violations_maximum": 0.5,
+            "cutoffs_hash": UUID("f74ccd77-0b3a-2bf8-0bfd-ec9713b5dca8"),
+        },
     ]
 
     @classmethod
@@ -258,7 +268,7 @@ class QualityMetricReport(dj.Computed):
     definition = """
     -> QualityMetricSet
     ---
-    plot_grid : longblob
+    plot_grid : <blob>
     """
 
     def make(self, key):

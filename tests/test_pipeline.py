@@ -55,7 +55,7 @@ def test_populate_lfp(pipeline, populate_lfp):
     ephys = pipeline["ephys"]
 
     assert np.mean(ephys.LFP.fetch1("lfp_mean")) == -716.0220556825378
-    assert len((ephys.LFP.Electrode).fetch("electrode")) == 43
+    assert len((ephys.LFP.Electrode).to_arrays("electrode")) == 43
 
 
 def test_insert_clustering_task(pipeline, insert_clustering_task):
@@ -81,16 +81,16 @@ def test_processing(pipeline, processing):
 
     # test ephys.CuratedClustering
     assert len(ephys.CuratedClustering.Unit & 'cluster_quality_label = "good"') == 176
-    assert np.sum(ephys.CuratedClustering.Unit.fetch("spike_count")) == 328167
+    assert np.sum(ephys.CuratedClustering.Unit.to_arrays("spike_count")) == 328167
     # test ephys.WaveformSet
     waveforms = np.vstack(
-        (ephys.WaveformSet.PeakWaveform).fetch("peak_electrode_waveform")
+        (ephys.WaveformSet.PeakWaveform).to_arrays("peak_electrode_waveform")
     )
     assert waveforms.shape == (227, 82)
 
     # test ephys.QualityMetrics
-    cluster_df = (ephys.QualityMetrics.Cluster).fetch(format="frame", order_by="unit")
-    waveform_df = (ephys.QualityMetrics.Waveform).fetch(format="frame", order_by="unit")
+    cluster_df = (ephys.QualityMetrics.Cluster).to_pandas(order_by="unit")
+    waveform_df = (ephys.QualityMetrics.Waveform).to_pandas(order_by="unit")
     test_df = pd.concat([cluster_df, waveform_df], axis=1).reset_index()
     test_value = test_df.select_dtypes(include=[np.number]).mean().values
 

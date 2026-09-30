@@ -5,7 +5,7 @@ from .readers.probe_geometry import build_electrode_layouts
 
 log = dj.logger
 
-schema = dj.schema()
+schema = dj.Schema()
 
 
 def activate(
@@ -60,13 +60,13 @@ class ProbeType(dj.Lookup):
 
         definition = """
         -> master
-        electrode: int       # electrode index, starts at 0
+        electrode: int32       # electrode index, starts at 0
         ---
-        shank: int           # shank index, starts at 0, advance left to right
-        shank_col: int       # column index, starts at 0, advance left to right
-        shank_row: int       # row index, starts at 0.
-        x_coord=NULL: float  # (um) x coordinate of the electrode within the probe.
-        y_coord=NULL: float  # (um) y coordinate of the electrode within the probe.
+        shank: int32           # shank index, starts at 0, advance left to right
+        shank_col: int32       # column index, starts at 0, advance left to right
+        shank_row: int32       # row index, starts at 0.
+        x_coord=NULL: float32  # (um) x coordinate of the electrode within the probe.
+        y_coord=NULL: float32  # (um) y coordinate of the electrode within the probe.
         """
 
     @staticmethod

@@ -121,7 +121,7 @@ def plot_depth_waveforms(
 
     electrodes, coord_y = (
         probe.ProbeType.Electrode & f"probe_type='{probe_type}'"
-    ).fetch("electrode", "y_coord")
+    ).to_arrays("electrode", "y_coord")
 
     peak_electrode_shank = (
         probe.ProbeType.Electrode
@@ -148,7 +148,7 @@ def plot_depth_waveforms(
         & f"y_coord BETWEEN {coord_ylim_low} AND {coord_ylim_high}"
         & f"shank={peak_electrode_shank}"
     )
-    electrodes_to_plot, x_coords, y_coords = tbl.fetch(
+    electrodes_to_plot, x_coords, y_coords = tbl.to_arrays(
         "electrode", "x_coord", "y_coord"
     )
 
@@ -158,7 +158,7 @@ def plot_depth_waveforms(
         ephys.WaveformSet.Waveform
         & unit_key
         & f"electrode IN {tuple(electrodes_to_plot)}"
-    ).fetch("waveform_mean")
+    ).to_arrays("waveform_mean")
     waveforms = np.stack(waveforms)  # all mean waveforms of a given neuron
 
     x_min, x_max = np.min(coords[:, 0]), np.max(coords[:, 0])
