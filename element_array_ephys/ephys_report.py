@@ -14,19 +14,19 @@ schema = dj.Schema()
 ephys = None
 
 
-def activate(schema_name, ephys_schema_name, *, create_schema=True, create_tables=True):
+def activate(schema_name, *, ephys_module, create_schema=True, create_tables=True):
     """Activate the current schema.
 
     Args:
         schema_name (str): schema name on the database server to activate the `ephys_report` schema.
-        ephys_schema_name (str): schema name of the activated ephys element for which
-                this ephys_report schema will be downstream from.
+        ephys_module (module): the activated ephys element module for which this
+                ephys_report schema will be downstream from.
         create_schema (bool, optional): If True (default), create schema in the database if it does not yet exist.
         create_tables (bool, optional): If True (default), create tables in the database if they do not yet exist.
     """
 
     global ephys
-    ephys = dj.create_virtual_module("ephys", ephys_schema_name)
+    ephys = ephys_module
     schema.activate(
         schema_name,
         create_schema=create_schema,

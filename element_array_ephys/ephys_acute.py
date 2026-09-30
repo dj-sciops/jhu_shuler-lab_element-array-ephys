@@ -3,6 +3,7 @@ import importlib
 import inspect
 import pathlib
 import re
+import sys
 from decimal import Decimal
 
 import datajoint as dj
@@ -66,7 +67,12 @@ def activate(
         create_tables=create_tables,
         add_objects=_linking_module.__dict__,
     )
-    ephys_report.activate(f"{ephys_schema_name}_report", ephys_schema_name)
+    ephys_report.activate(
+        f"{ephys_schema_name}_report",
+        ephys_module=sys.modules[__name__],
+        create_schema=create_schema,
+        create_tables=create_tables,
+    )
 
 
 # -------------- Functions required by the elements-ephys  ---------------
