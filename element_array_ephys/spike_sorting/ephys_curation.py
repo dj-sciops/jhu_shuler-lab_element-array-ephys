@@ -73,15 +73,8 @@ class ManualCuration(dj.Manual):
     parent_curation_id=-1: int32     # if -1, this curation is based on the raw spike sorting results
     -> CurationMethod              # which method/package used for manual curation (inform how to ingest the results)
     description="": varchar(1000)  # user-defined description/note of the curation
+    curation_folder=null: <object@ephys-processed>  # curated Phy folder (without the raw recording.dat)
     """
-
-    class File(dj.Part):
-        definition = """
-        -> master
-        file_name: varchar(255)
-        ---
-        file: <filepath@ephys-processed>
-        """
 
     @classmethod
     def prepare_manual_curation(
@@ -126,17 +119,23 @@ class ManualCuration(dj.Manual):
             assert (
                 ephys_sorter.SIExport & key
             ), "SIExport not found for the specified key"
-            files_query = (
-                ephys_sorter.SIExport.File
-                & key
-                & "file_name LIKE 'phy%' AND file_name NOT LIKE '%recording.dat'"
-            )
+            source_folder = (ephys_sorter.SIExport & key).fetch1("phy_folder")
+            assert source_folder is not None, "No Phy export stored for the specified key"
         else:
             assert cls & {
                 **key,
                 "curation_id": parent_curation_id,
             }, "ManualCuration not found for the specified key"
-            files_query = cls.File & {**key, "curation_id": parent_curation_id}
+            source_folder = (cls & {**key, "curation_id": parent_curation_id}).fetch1(
+                "curation_folder"
+            )
+            assert source_folder is not None, "No files stored for the parent curation"
+        source_files = [
+            f"{root}/{name}".lstrip("/")
+            for root, _, files in source_folder.walk()
+            for name in files
+            if name != "recording.dat"
+        ]
 
         # create new directory for new curation
         output_dir = (ephys.ClusteringTask & key).fetch1("clustering_output_dir")
@@ -152,27 +151,24 @@ class ManualCuration(dj.Manual):
 
         # download spike sorting files and copy to the new directory
         logger.info(
-            f"New manual curation: {curation_output_dir} - Downloading {len(files_query)} files..."
+            f"New manual curation: {curation_output_dir} - Downloading {len(source_files)} files..."
         )
 
-        for f in files_query.to_arrays("file"):
-            f = Path(f)
-            if f.name.startswith(".") and f.suffix in (".json", ".pickle"):
+        for subpath in source_files:
+            name = Path(subpath).name
+            if name.startswith(".") and Path(name).suffix in (".json", ".pickle"):
                 continue
-            new_f = curation_output_dir / f.name
+            new_f = curation_output_dir / name
             if not new_f.exists() or if_exists == "overwrite":
-                shutil.copy2(f, new_f)
+                source_folder.download(new_f, subpath=subpath)
 
         if download_binary:
             new_f = curation_output_dir / "recording.dat"
             if not new_f.exists() or if_exists == "overwrite":
-                raw_file_query = (
-                    ephys_sorter.SIExport.File & key & "file_name = 'phy/recording.dat'"
-                )
-                if raw_file_query:
+                phy_folder = (ephys_sorter.SIExport & key).fetch1("phy_folder")
+                if phy_folder is not None and phy_folder.exists("recording.dat"):
                     logger.info("Downloading raw ephys data file...")
-                    f = Path(raw_file_query.fetch1("file"))
-                    shutil.copy2(f, new_f)
+                    phy_folder.download(new_f, subpath="recording.dat")
                 else:
                     logger.warning("Raw ephys data file not found.")
 
@@ -266,45 +262,35 @@ class ManualCuration(dj.Manual):
         logger.info(f"New curation id: {curation_id}")
 
         key["curation_id"] = curation_id
-        with cls.connection.transaction:
-            entry = {
-                **key,
-                "curation_datetime": curate_datetime,
-                "parent_curation_id": parent_curation_id,
-                "curation_method": curation_method,
-                "description": description,
-            }
-            cls.insert1(entry)
 
-            # rename curation_output_dir folder into curation_id (skip the raw recording.dat file)
-            new_curation_output_dir = (
-                curation_output_dir.parent
-                / f"{curation_method}_curationID_{curation_id}"
-            )
-            new_curation_output_dir.mkdir(parents=True, exist_ok=True)
-            for f in curation_output_dir.glob("*"):
-                if f.is_file() and f.name != "recording.dat":
-                    shutil.copy2(
-                        f, new_curation_output_dir / f.relative_to(curation_output_dir)
-                    )
-                elif f.is_dir():
-                    shutil.copytree(
-                        f, new_curation_output_dir / f.relative_to(curation_output_dir)
-                    )
+        # copy curation_output_dir into a folder named by curation_id
+        # (skip the raw recording.dat file and the entry json)
+        new_curation_output_dir = (
+            curation_output_dir.parent / f"{curation_method}_curationID_{curation_id}"
+        )
+        new_curation_output_dir.mkdir(parents=True, exist_ok=True)
+        for f in curation_output_dir.glob("*"):
+            if f.is_file() and f.name not in (
+                "recording.dat",
+                ".manual_curation_entry.json",
+            ):
+                shutil.copy2(
+                    f, new_curation_output_dir / f.relative_to(curation_output_dir)
+                )
+            elif f.is_dir():
+                shutil.copytree(
+                    f, new_curation_output_dir / f.relative_to(curation_output_dir)
+                )
 
-            logger.info(f"Inserting files from {new_curation_output_dir}...")
-            cls.File.insert(
-                [
-                    {
-                        **key,
-                        "file_name": f.relative_to(new_curation_output_dir).as_posix(),
-                        "file": f,
-                    }
-                    for f in new_curation_output_dir.rglob("*")
-                    if f.is_file()
-                    and f.name not in ("recording.dat", ".manual_curation_entry.json")
-                ]
-            )
+        entry = {
+            **key,
+            "curation_datetime": curate_datetime,
+            "parent_curation_id": parent_curation_id,
+            "curation_method": curation_method,
+            "description": description,
+        }
+        logger.info(f"Inserting files from {new_curation_output_dir}...")
+        cls.insert1({**entry, "curation_folder": new_curation_output_dir})
 
         logger.info(f"New manual curation successfully inserted: {key}")
 
@@ -370,10 +356,20 @@ class ApplyOfficialCuration(dj.Imported):
         """
         from element_array_ephys.readers import kilosort
 
-        curated_files = (ManualCuration.File & key).to_arrays("file")
+        # the official curation of this clustering (key has no curation_id)
+        curation_folder, curation_method, curation_id = (
+            OfficialCuration * ManualCuration & key
+        ).fetch1("curation_folder", "curation_method", "curation_id")
+        if curation_folder is None:
+            raise ValueError(f"No files stored for ManualCuration {key}")
         curation_output_dir = (
-            next(Path(f) for f in curated_files if Path(f).name == "params.py")
-        ).parent
+            Path(ephys.get_processed_root_data_dir())
+            / (ephys.ClusteringTask & key).fetch1("clustering_output_dir")
+            / "curations"
+            / f"{curation_method}_curationID_{curation_id}"
+        )
+        curation_folder.download(curation_output_dir)
+        curation_output_dir = next(curation_output_dir.rglob("params.py")).parent
 
         curation_method = (OfficialCuration * ManualCuration & key).fetch1(
             "curation_method"

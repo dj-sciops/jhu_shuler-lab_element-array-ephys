@@ -3,9 +3,7 @@ The following DataJoint pipeline implements the sequence of steps in the spike-s
 """
 
 from datetime import datetime
-import shutil
 import datajoint as dj
-import pathlib
 import spikeinterface as si
 from element_array_ephys import probe, readers
 from element_interface.utils import find_full_path, memoized_result
@@ -59,15 +57,8 @@ class PreProcessing(dj.Imported):
     ---
     execution_time: datetime   # datetime of the start of this step
     execution_duration: float32  # execution duration in hours
+    recording_folder=null: <object@ephys-processed>  # preprocessed SI recording (<method>/recording)
     """
-
-    class File(dj.Part):
-        definition = """
-        -> master
-        file_name: varchar(255)
-        ---
-        file: <filepath@ephys-processed>
-        """
 
     @property
     def key_source(self):
@@ -182,15 +173,8 @@ class PreProcessing(dj.Imported):
                     datetime.utcnow() - execution_time
                 ).total_seconds()
                 / 3600,
+                "recording_folder": recording_dir,
             }
-        )
-        # Insert result files
-        self.File.insert(
-            [
-                {**key, "file_name": f.relative_to(recording_dir).as_posix(), "file": f}
-                for f in recording_dir.rglob("*")
-                if f.is_file()
-            ]
         )
 
 
@@ -203,14 +187,17 @@ class SIClustering(dj.Imported):
     ---
     execution_time: datetime        # datetime of the start of this step
     execution_duration: float32       # execution duration in hours
+    sorting_folder=null: <object@ephys-processed>  # sorting result (<method>/spike_sorting); the agreement sorting for consensus
     """
 
-    class File(dj.Part):
+    class Sorter(dj.Part):
         definition = """
+        # Individual sorter run feeding a consensus sorting
         -> master
-        file_name: varchar(255)
+        sorter_index: int16  # position in SI_SORTING_PARAMS
         ---
-        file: <filepath@ephys-processed>
+        sorter_name: varchar(64)
+        sorting_folder: <object@ephys-processed>  # <method>/<sorter>_params<i>/spike_sorting
         """
 
     def make(self, key):
@@ -263,7 +250,6 @@ class SIClustering(dj.Imported):
 
         sorter_objects = []
         sorter_names = []
-        result_files = []
         for i, sorter in enumerate(sorters_to_run):
             # Run sorting
             @memoized_result(
@@ -290,17 +276,6 @@ class SIClustering(dj.Imported):
 
             sorter_objects.append(_run_sorter())
             sorter_names.append(f"{sorter['sorter_name']}_params{i}")
-            result_files.extend(
-                [
-                    {
-                        **key,
-                        "file_name": f.relative_to(output_dir).as_posix(),
-                        "file": f,
-                    }
-                    for f in sorter["sorting_output_dir"].rglob("*")
-                    if f.is_file()
-                ]
-            )
 
         if clustering_method == "consensus":
             import spikeinterface.comparison as sc
@@ -342,17 +317,6 @@ class SIClustering(dj.Imported):
                 output_dir / clustering_method / "spike_sorting"
             )
             agreement.dump_to_pickle(consensus_folder / "si_sorting.pkl", relative_to=output_dir)
-            result_files.extend(
-                [
-                    {
-                        **key,
-                        "file_name": f.relative_to(output_dir).as_posix(),
-                        "file": f,
-                    }
-                    for f in consensus_folder.rglob("*")
-                    if f.is_file()
-                ]
-            )
 
         self.insert1(
             {
@@ -362,10 +326,19 @@ class SIClustering(dj.Imported):
                     datetime.utcnow() - execution_time
                 ).total_seconds()
                 / 3600,
+                "sorting_folder": output_dir / clustering_method / "spike_sorting",
             }
         )
-        # Insert result files
-        self.File.insert(result_files)
+        if clustering_method == "consensus":
+            self.Sorter.insert(
+                {
+                    **key,
+                    "sorter_index": i,
+                    "sorter_name": sorter["sorter_name"],
+                    "sorting_folder": sorter["sorting_output_dir"],
+                }
+                for i, sorter in enumerate(sorters_to_run)
+            )
 
 
 @schema
@@ -378,15 +351,8 @@ class PostProcessing(dj.Imported):
     execution_time: datetime   # datetime of the start of this step
     execution_duration: float32  # execution duration in hours
     do_si_export=0: bool       # whether to export to phy
+    analyzer_folder=null: <object@ephys-processed>  # SortingAnalyzer (<method>/sorting_analyzer); null when there are no units
     """
-
-    class File(dj.Part):
-        definition = """
-        -> master
-        file_name: varchar(255)
-        ---
-        file: <filepath@ephys-processed>
-        """
 
     def make(self, key):
         execution_time = datetime.utcnow()
@@ -466,20 +432,8 @@ class PostProcessing(dj.Imported):
                 ).total_seconds()
                 / 3600,
                 "do_si_export": do_si_export and has_units,
+                "analyzer_folder": analyzer_output_dir if has_units else None,
             }
-        )
-
-        # Insert result files
-        self.File.insert(
-            [
-                {
-                    **key,
-                    "file_name": f.relative_to(analyzer_output_dir).as_posix(),
-                    "file": f,
-                }
-                for f in analyzer_output_dir.rglob("*")
-                if f.is_file()
-            ]
         )
 
         # Once finished, insert this `key` into ephys.Clustering
@@ -497,15 +451,9 @@ class SIExport(dj.Computed):
     ---
     execution_time: datetime
     execution_duration: float32
+    phy_folder=null: <object@ephys-processed>     # Phy export (<method>/sorting_analyzer/phy)
+    report_folder=null: <object@ephys-processed>  # SpikeInterface report (<method>/sorting_analyzer/spikeinterface_report)
     """
-
-    class File(dj.Part):
-        definition = """
-        -> master
-        file_name: varchar(255)
-        ---
-        file: <filepath@ephys-processed>
-        """
 
     @property
     def key_source(self):
@@ -535,13 +483,12 @@ class SIExport(dj.Computed):
         )
         def _export_to_phy():
             # copy the recording.dat
-            rec_dat_query = SIClustering.File & key & "file_name LIKE '%recording.dat'"
-            if rec_dat_query:
-                src_fp = pathlib.Path(rec_dat_query.to_arrays("file", limit=1)[0])
-                existing_rec_dat = True
-            else:
-                src_fp = None
-                existing_rec_dat = False
+            rec_dat = _find_in_folders(
+                [(SIClustering & key).fetch1("sorting_folder")]
+                + list((SIClustering.Sorter & key).to_arrays("sorting_folder")),
+                "recording.dat",
+            )
+            existing_rec_dat = rec_dat is not None
 
             # Save to phy format
             si.exporters.export_to_phy(
@@ -556,8 +503,11 @@ class SIExport(dj.Computed):
             if existing_rec_dat:
                 dest_fp = analyzer_output_dir / "phy" / "recording.dat"
                 log.info(f"Copy recording.dat to {dest_fp} for phy export.")
-                if not(dest_fp.exists() and dest_fp.stat().st_size == src_fp.stat().st_size):
-                    shutil.copy(src_fp, dest_fp)
+                folder_ref, subpath = rec_dat
+                with folder_ref.open(subpath) as f:
+                    remote_size = f.seek(0, 2)
+                if not (dest_fp.exists() and dest_fp.stat().st_size == remote_size):
+                    folder_ref.download(dest_fp, subpath=subpath)
                 log.info("Update `dat_path` in `params.py`.")
                 params_py = analyzer_output_dir / "phy" / "params.py"
                 with params_py.open("r") as f:
@@ -579,9 +529,11 @@ class SIExport(dj.Computed):
                 **job_kwargs,
             )
 
-        if postprocessing_params.get("export_report", False):
+        export_report = postprocessing_params.get("export_report", False)
+        export_to_phy = postprocessing_params.get("export_to_phy", False)
+        if export_report:
             _export_report()
-        if postprocessing_params.get("export_to_phy", False):
+        if export_to_phy:
             _export_to_phy()
 
         self.insert1(
@@ -592,19 +544,25 @@ class SIExport(dj.Computed):
                     datetime.utcnow() - execution_time
                 ).total_seconds()
                 / 3600,
+                "phy_folder": analyzer_output_dir / "phy" if export_to_phy else None,
+                "report_folder": (
+                    analyzer_output_dir / "spikeinterface_report"
+                    if export_report
+                    else None
+                ),
             }
         )
 
-        # Insert result files
-        for report_dirname in ("spikeinterface_report", "phy"):
-            self.File.insert(
-                [
-                    {
-                        **key,
-                        "file_name": f.relative_to(analyzer_output_dir).as_posix(),
-                        "file": f,
-                    }
-                    for f in (analyzer_output_dir / report_dirname).rglob("*")
-                    if f.is_file()
-                ]
-            )
+
+def _find_in_folders(folder_refs, filename):
+    """Find `filename` inside stored `<object@>` folders.
+
+    Returns (folder_ref, subpath) for the first match, or None.
+    """
+    for folder_ref in folder_refs:
+        if folder_ref is None:
+            continue
+        for root, _, files in folder_ref.walk():
+            if filename in files:
+                return folder_ref, f"{root}/{filename}".lstrip("/")
+    return None
