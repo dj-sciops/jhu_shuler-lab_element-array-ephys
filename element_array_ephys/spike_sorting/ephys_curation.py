@@ -368,7 +368,7 @@ class ApplyOfficialCuration(dj.Imported):
             / "curations"
             / f"{curation_method}_curationID_{curation_id}"
         )
-        curation_folder.download(curation_output_dir)
+        download_folder_contents(curation_folder, curation_output_dir)
         curation_output_dir = next(curation_output_dir.rglob("params.py")).parent
 
         curation_method = (OfficialCuration * ManualCuration & key).fetch1(
@@ -507,3 +507,17 @@ def launch_phy(key, parent_curation_id=-1, download_binary=False):
         curation_output_dir,
         description=description,
     )
+
+
+def download_folder_contents(folder_ref, destination):
+    """Download the contents of a stored `<object@>` folder into `destination`.
+
+    `ObjectRef.download(directory)` places the stored folder itself inside `directory`;
+    this reproduces the original layout directly under `destination`.
+    """
+    destination = Path(destination)
+    for root, _, files in folder_ref.walk():
+        for name in files:
+            subpath = f"{root}/{name}".lstrip("/")
+            folder_ref.download(destination / subpath, subpath=subpath)
+    return destination
