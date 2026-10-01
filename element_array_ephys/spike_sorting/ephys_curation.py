@@ -256,7 +256,7 @@ class ManualCuration(dj.Manual):
 
         curate_datetime = datetime.now(timezone.utc)
         curation_id = (
-            ephys.Clustering.aggr(cls, count="count(curation_id)", keep_all_rows=True)
+            ephys.Clustering.aggr(cls, count="count(curation_id)")
             & key
         ).fetch1("count") + 1
         logger.info(f"New curation id: {curation_id}")
